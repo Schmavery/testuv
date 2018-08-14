@@ -1,0 +1,15 @@
+{
+  "name": "Reasongl",
+  "sources": [{ "dir": "src" }],
+  "static-libraries": ["libuv.a", "lib/libuv_c.o"],
+  "warnings": {"number": "-44"},
+  "build-script": "build_script.re",
+  "entries": [{
+    "backend": "native",
+    "main-module": "Example"
+  },{
+    "backend": "bytecode",
+    "main-module": "Example"
+  }],
+  "refmt": 3
+}
