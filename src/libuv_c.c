@@ -66,7 +66,7 @@ static void read_cb(uv_stream_t* client, ssize_t nread, const uv_buf_t* buf) {
   CAMLparam0();
   CAMLlocal1(read_str);
   int r = 0;
-  fprintf(stderr, "Read_cb running\n");
+  LOG("Read_cb running\n");
 
   /* Errors or EOF */
   if (nread < 0) {
@@ -74,10 +74,10 @@ static void read_cb(uv_stream_t* client, ssize_t nread, const uv_buf_t* buf) {
 
     /* Client signaled that all data has been sent, so we can close the connection and are done */
     client_cbs_t * cbs = (client_cbs_t *)client->data;
-    if (cbs->end_cb){
-      caml_callback(cbs->end_cb, Val_unit);
-    }
-    free(buf->base);
+    LOG(">>>> It's all over");
+
+    if (cbs->end_cb) caml_callback(cbs->end_cb, Val_unit);
+    if (buf->base) free(buf->base);
     return;
   }
 
@@ -87,11 +87,8 @@ static void read_cb(uv_stream_t* client, ssize_t nread, const uv_buf_t* buf) {
     return;
   }
 
-  if (nread > 0) fprintf(stderr, "Debug: %.*s\n", nread, buf->base);
-
   /* TODO: maybe this should be a different datatype */
   client_cbs_t * cbs = (client_cbs_t *)client->data;
-  LOG("got some data to send");
   if (nread > 0 && cbs->data_cb){
     read_str = caml_copy_string(buf->base);
     caml_callback(cbs->data_cb, read_str);
@@ -164,11 +161,7 @@ CAMLprim void ocamluv_listen(value server, value port, value host){
 
   struct sockaddr_in addr;
   fprintf(stderr, "Creating address: %s, %d\n", String_val(host), Int_val(port));
-  char* host_ip = String_val(host);
-  if (memcmp(host_ip, "localhost", caml_string_length(host)) == 0){
-    host_ip = "127.0.0.1";
-  }
-  int r = uv_ip4_addr(host_ip, Int_val(port), &addr);
+  int r = uv_ip4_addr(String_val(host), Int_val(port), &addr);
   CHECK(r, "uv_ip4_addr");
 
   // TODO: unhardcode AF_INET?
@@ -178,7 +171,6 @@ CAMLprim void ocamluv_listen(value server, value port, value host){
   // TODO: unhardcode SOMAXCONN?
   r = uv_listen((uv_stream_t*) tcp_server, SOMAXCONN, connection_cb);
   CHECK(r, "uv_listen");
-  fprintf(stderr, "Listening on %s:%d\n", host_ip, Int_val(port));
 
   r = uv_run(tcp_server->loop, UV_RUN_DEFAULT);
   CHECK(r, "uv_run");
@@ -233,15 +225,10 @@ CAMLprim void on_data(value req, value data_cb){
 
 CAMLprim void on_end(value req, value end_cb){
   CAMLparam2(req, end_cb);
-  LOG("getting client");
   uv_tcp_t *client = (uv_tcp_t*)Field(req, 0);
   client_cbs_t * cbs = (client_cbs_t *)client->data;
-  LOG("registering");
   caml_register_global_root(&end_cb);
-  LOG("registered");
   cbs->end_cb = end_cb;
-  LOG("ensuring");
   ensure_reading(client, cbs);
-  LOG("ensured");
   CAMLreturn0;
 }
