@@ -1,62 +1,82 @@
 type serverT;
 
-type resT;
+type clientT;
 
-type headerT =
-  | HTTP(int, string)
-  | ContentType(string)
-  | Connection(string)
-  | ContentLength(int)
-  | Debug(string);
+type resT = {
+  client: clientT,
+  mutable statusCode: int,
+  mutable contentType: string,
+  mutable headers: string,
+  mutable wroteHeaders: bool,
+};
 
 type responseListenT('a) =
   | Data: responseListenT(string => unit)
   | End: responseListenT(unit => unit);
 
-external createServer : (resT => unit) => serverT = "create_server";
+external createServer : (clientT => unit) => serverT = "create_server";
 
-external listen_ : (serverT, int, string) => unit = "ocamluv_listen";
+let createServer = cb =>
+  createServer(c =>
+    cb({
+      client: c,
+      statusCode: 200,
+      contentType: "text/plain",
+      headers: "\n",
+      wroteHeaders: false,
+    })
+  );
+
+external listen : (serverT, int, string) => unit = "ocamluv_listen";
 
 let listen = (server, port, host) =>
   switch (Unix.gethostbyname(host)) {
-  | exception Not_found => listen_(server, port, host)
-  | {h_addr_list: [||]} => listen_(server, port, host)
+  | exception Not_found => listen(server, port, host)
+  | {h_addr_list: [||]} => listen(server, port, host)
   | {h_addr_list} =>
-    listen_(server, port, Unix.string_of_inet_addr(h_addr_list[0]))
+    listen(server, port, Unix.string_of_inet_addr(h_addr_list[0]))
   };
 
-external write : (resT, string) => unit = "ocamluv_write";
+let getStatusCodeName = n =>
+  switch (n) {
+  | 200 => "OK"
+  | _ => "Unknown"
+  };
 
-let writeHead = (r: resT, l: list(headerT)) => {
-  let headers =
-    String.concat(
-      "\n",
-      List.map(
-        h =>
-          switch (h) {
-          | HTTP(i, s) => Printf.sprintf("HTTP/1.0 %d %s", i, s)
-          | ContentType(s) => Printf.sprintf("Content-type: %s", s)
-          | ContentLength(i) => Printf.sprintf("Content-length: %d", i)
-          | Connection(s) => Printf.sprintf("Connection: %s", s)
-          | Debug(s) => s
-          },
-        l,
-      ),
-    )
-    ++ "\n\n";
-  print_endline(headers);
-  write(r, headers);
+external write : (clientT, string) => unit = "ocamluv_write";
+
+let write = (res, msg) => {
+  let fullMsg =
+    if (! res.wroteHeaders) {
+      res.wroteHeaders = true;
+      let http =
+        "HTTP/1.0 "
+        ++ string_of_int(res.statusCode)
+        ++ " "
+        ++ getStatusCodeName(res.statusCode)
+        ++ "\n";
+      let contentType = "Content-type: " ++ res.contentType ++ "\n";
+      http ++ contentType ++ res.headers ++ msg;
+    } else {
+      msg;
+    };
+  write(res.client, fullMsg);
 };
 
-/* TODO: Make res different than req? */
-external requestOnData : (resT, bytes => unit) => unit = "on_data";
+let addHeader = (req, s, v) =>
+  req.headers = s ++ ": " ++ v ++ req.headers ++ "\n";
 
-external requestOnEnd : (resT, unit => unit) => unit = "on_end";
+/* TODO: Make res different than req? */
+external requestOnData : (clientT, bytes => unit) => unit = "on_data";
+
+external requestOnEnd : (clientT, unit => unit) => unit = "on_end";
 
 let requestOn = (type a, req, t: responseListenT(a), cb: a) =>
   switch (t) {
-  | Data => requestOnData(req, cb)
-  | End => requestOnEnd(req, cb)
+  | Data => requestOnData(req.client, cb)
+  | End => requestOnEnd(req.client, cb)
   };
 
-external endConnection : resT => unit = "end_connection";
+external endConnection : clientT => unit = "end_connection";
+
+let endConnection = (r) => endConnection(r.client);
