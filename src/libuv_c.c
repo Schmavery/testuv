@@ -18,7 +18,6 @@ typedef struct {
 typedef struct {
   value data_cb;
   value end_cb;
-  int reading;
 } client_cbs_t;
 
 #define LOG(m) fprintf(stderr, "%s\n", m)
@@ -97,6 +96,7 @@ static void read_cb(uv_stream_t* client, ssize_t nread, const uv_buf_t* buf) {
   CAMLreturn0;
 }
 
+
 static void connection_cb(uv_stream_t *server, int status) {
   CAMLparam0();
   CAMLlocal1(res);
@@ -131,6 +131,10 @@ static void connection_cb(uv_stream_t *server, int status) {
   res = caml_alloc(1, Abstract_tag);
   Field(res, 0) = (long) client;
   caml_callback((value) server->data, res);
+
+  /* Start reading after allowing the user to set up listeners. */
+  r = uv_read_start((uv_stream_t*) client, alloc_cb, read_cb);
+  CHECK(r, "uv_read_start");
 
   CAMLreturn0;
 }
@@ -202,16 +206,6 @@ CAMLprim void end_connection(value res){
   CAMLreturn0;
 }
 
-void ensure_reading(uv_tcp_t *client, client_cbs_t *cbs){
-  if (!cbs->reading){
-    fprintf(stderr, "Starting to read\n");
-    int r = uv_read_start((uv_stream_t*) client, alloc_cb, read_cb);
-    CHECK(r, "uv_read_start");
-    fprintf(stderr, "Called read cb...\n");
-    cbs->reading = 1;
-  }
-}
-
 /* TODO: Note.. req and res are currently the same things... */
 CAMLprim void on_data(value req, value data_cb){
   CAMLparam2(req, data_cb);
@@ -219,7 +213,6 @@ CAMLprim void on_data(value req, value data_cb){
   client_cbs_t * cbs = (client_cbs_t *)client->data;
   caml_register_global_root(&data_cb);
   cbs->data_cb = data_cb;
-  ensure_reading(client, cbs);
   CAMLreturn0;
 }
 
@@ -229,6 +222,5 @@ CAMLprim void on_end(value req, value end_cb){
   client_cbs_t * cbs = (client_cbs_t *)client->data;
   caml_register_global_root(&end_cb);
   cbs->end_cb = end_cb;
-  ensure_reading(client, cbs);
   CAMLreturn0;
 }
