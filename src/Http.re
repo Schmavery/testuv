@@ -134,3 +134,5 @@ let endConnection = r => {
   write(r, "");
   endConnection(r.client)
 };
+
+external request : string => int => string => unit = "request";

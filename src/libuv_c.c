@@ -10,6 +10,9 @@
 
 #include "../include/uv.h"
 
+/* TODO: unify client and server as much as possible */
+
+
 typedef struct {
   uv_write_t req;
   uv_buf_t buf;
@@ -222,5 +225,131 @@ CAMLprim void on_end(value req, value end_cb){
   client_cbs_t * cbs = (client_cbs_t *)client->data;
   caml_register_global_root(&end_cb);
   cbs->end_cb = end_cb;
+  CAMLreturn0;
+}
+
+void timeout_fired_cb(uv_timer_t* timer) {
+  LOG("timeout fired");
+  /* SimpleHttpRequest *client = (SimpleHttpRequest*)timer->data; */
+  /* client->_clearTimer(); */
+  /* client->_clearConnection(); */
+  /* int _err = -ETIMEDOUT; */
+  /* client->emit("error", uv_err_name(_err), uv_strerror(_err)); */
+}
+
+
+void client_read_cb(uv_stream_t *tcp, ssize_t nread, const uv_buf_t * buf) {
+  if (nread < 0) {
+    if (nread != UV_EOF) CHECK(nread, "client_read_cb");
+
+    /* TODO: Client signaled that all data has been sent, so we can close the connection and are done */
+    /* client_cbs_t * cbs = (client_cbs_t *)client->data; */
+    LOG(">>>> It's all over");
+
+    /* if (cbs->end_cb) caml_callback(cbs->end_cb, Val_unit); */
+    if (buf->base) free(buf->base);
+    return;
+  }
+
+  if (nread == 0) {
+    /* Everything OK, but nothing read and thus we don't write anything */
+    free(buf->base);
+    return;
+  }
+
+  /* TODO */
+  /* client_cbs_t * cbs = (client_cbs_t *)client->data; */
+  /* if (nread > 0 && cbs->data_cb){ */
+  /*   read_str = caml_copy_string(buf->base); */
+  /*   caml_callback(cbs->data_cb, read_str); */
+  /* } */
+  fprintf(stderr, "From server: %s", buf->base);
+  free(buf->base);
+}
+
+char* test_string = "hello world";
+
+void client_connect_cb(uv_connect_t *req, int status) {
+  CHECK(status, "client_connect_cb")
+  LOG("Connection with server established");
+  int r = uv_read_start(req->handle, alloc_cb, client_read_cb);
+  CHECK(r, "uv_read_start");
+
+  /* size_t buf_len = caml_string_length(str); */
+  size_t buf_len = 11;
+  char *buf = calloc(sizeof(char), buf_len);
+  /* memcpy(buf, String_val(str), buf_len); */
+  memcpy(buf, test_string, buf_len);
+
+  write_req_t *write_req = malloc(sizeof(write_req_t));
+  write_req->buf = uv_buf_init(buf, buf_len);
+  /* uv_stream_t *client = (uv_stream_t*)Field(res, 0); */
+  r = uv_write(&write_req->req, req->handle, &write_req->buf, 1, write_cb);
+  CHECK(r, "uv_write");
+}
+
+/* TODO: Split this up into a reason binding for each
+ * function and put the logic in reason */
+CAMLprim void request(value hostv, value portv, value method){
+  CAMLparam3(hostv, portv, method);
+
+  uv_loop_t *loop = uv_default_loop();
+
+  int timeout = 30;
+  char* host = String_val(hostv);
+  int port = Int_val(portv);
+  uv_timer_t timer;
+  int r = uv_timer_init(loop, &timer);
+  CHECK(r, "uv_timer");
+  r = uv_timer_start(&timer, timeout_fired_cb, timeout, 0);
+  CHECK(r, "uv_timer_start");
+
+  struct sockaddr_in dest;
+  /* TODO: pass in addr */
+  r = uv_ip4_addr(host, port, &dest);
+
+  if (r != 0) {
+    struct addrinfo hints;
+
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_protocol = IPPROTO_TCP;
+
+    char* portstr = malloc(10*sizeof(char));
+    sprintf(portstr, "%d", port);
+    uv_getaddrinfo_t getaddrinfo_req;
+    r = uv_getaddrinfo(loop,
+                        &getaddrinfo_req,
+                        NULL,  // TODO: async?
+                        host,
+                        portstr,
+                        &hints);
+    CHECK(r, "uv_getaddrinfo")
+    free(portstr);
+
+    char ip[17];
+    r = uv_ip4_name((struct sockaddr_in*) getaddrinfo_req.addrinfo->ai_addr, ip, 16);
+    CHECK(r, "uv_ip4_name");
+    uv_freeaddrinfo(getaddrinfo_req.addrinfo);
+
+    r = uv_ip4_addr(ip, port, &dest);
+    CHECK(r, "uv_ip4_addr");
+
+    // TODO: let server know the domain.
+    /* requestHeaders["host"] = options["hostname"]; */
+  }
+
+  uv_tcp_t *tcp = malloc(sizeof(uv_tcp_t));
+  r = uv_tcp_init(loop, tcp);
+  CHECK(r, "uv_tcp_init");
+
+  uv_connect_t connect_req;
+  r = uv_tcp_connect(&connect_req, tcp, (const struct sockaddr *) &dest, client_connect_cb);
+  CHECK(r, "uv_tcp_connect");
+
+  r = uv_run(tcp->loop, UV_RUN_DEFAULT);
+  CHECK(r, "uv_run request")
+
   CAMLreturn0;
 }
