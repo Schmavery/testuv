@@ -238,6 +238,7 @@ void timeout_fired_cb(uv_timer_t* timer) {
 }
 
 
+/* TODO: handle reading chunked encoding */
 void client_read_cb(uv_stream_t *tcp, ssize_t nread, const uv_buf_t * buf) {
   if (nread < 0) {
     if (nread != UV_EOF) CHECK(nread, "client_read_cb");
@@ -267,7 +268,7 @@ void client_read_cb(uv_stream_t *tcp, ssize_t nread, const uv_buf_t * buf) {
   free(buf->base);
 }
 
-char* test_string = "hello world";
+char* test_string = "GET / HTTP/1.1\r\nHost: localhost:8080\r\n\r\n";
 
 void client_connect_cb(uv_connect_t *req, int status) {
   CHECK(status, "client_connect_cb")
@@ -276,7 +277,7 @@ void client_connect_cb(uv_connect_t *req, int status) {
   CHECK(r, "uv_read_start");
 
   /* size_t buf_len = caml_string_length(str); */
-  size_t buf_len = 11;
+  size_t buf_len = 41;
   char *buf = calloc(sizeof(char), buf_len);
   /* memcpy(buf, String_val(str), buf_len); */
   memcpy(buf, test_string, buf_len);
@@ -288,20 +289,23 @@ void client_connect_cb(uv_connect_t *req, int status) {
   CHECK(r, "uv_write");
 }
 
+
+int default_timeout = 60*2*1000; // 2 minutes
+
 /* TODO: Split this up into a reason binding for each
  * function and put the logic in reason */
+/* TODO: make this not blocking */
 CAMLprim void request(value hostv, value portv, value method){
   CAMLparam3(hostv, portv, method);
 
   uv_loop_t *loop = uv_default_loop();
 
-  int timeout = 30;
   char* host = String_val(hostv);
   int port = Int_val(portv);
   uv_timer_t timer;
   int r = uv_timer_init(loop, &timer);
   CHECK(r, "uv_timer");
-  r = uv_timer_start(&timer, timeout_fired_cb, timeout, 0);
+  r = uv_timer_start(&timer, timeout_fired_cb, default_timeout, 0);
   CHECK(r, "uv_timer_start");
 
   struct sockaddr_in dest;
