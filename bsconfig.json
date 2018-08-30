@@ -4,10 +4,13 @@
   "static-libraries": ["libuv.a", "lib/libuv_c.o"],
   "warnings": {"number": "-44"},
   "build-script": "build_script.re",
-  "entries": [{
+  "entries": [ {
     "backend": "native",
-    "main-module": "Example"
-  },{
+    "main-module": "ExampleServer"
+  }, {
+    "backend": "native",
+    "main-module": "ExampleClient"
+  }, {
     "backend": "bytecode",
     "main-module": "Example"
   }],
