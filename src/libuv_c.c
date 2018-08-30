@@ -19,6 +19,11 @@ typedef struct {
 } write_req_t;
 
 typedef struct {
+  uv_connect_t req;
+  uv_buf_t buf;
+} client_connect_req_t;
+
+typedef struct {
   value data_cb;
   value end_cb;
 } client_cbs_t;
@@ -230,6 +235,7 @@ CAMLprim void on_end(value req, value end_cb){
 
 void timeout_fired_cb(uv_timer_t* timer) {
   LOG("timeout fired");
+  /* TODO cleanup, pass error to ocaml listener */
   /* SimpleHttpRequest *client = (SimpleHttpRequest*)timer->data; */
   /* client->_clearTimer(); */
   /* client->_clearConnection(); */
@@ -238,12 +244,12 @@ void timeout_fired_cb(uv_timer_t* timer) {
 }
 
 
-/* TODO: handle reading chunked encoding */
+/* TODO: handle reading chunked encoding? maybe http-parser handles it */
 void client_read_cb(uv_stream_t *tcp, ssize_t nread, const uv_buf_t * buf) {
   if (nread < 0) {
     if (nread != UV_EOF) CHECK(nread, "client_read_cb");
 
-    /* TODO: Client signaled that all data has been sent, so we can close the connection and are done */
+    /* TODO: Server signaled that all data has been sent, so we can close the connection and are done */
     /* client_cbs_t * cbs = (client_cbs_t *)client->data; */
     LOG(">>>> It's all over");
 
@@ -253,12 +259,12 @@ void client_read_cb(uv_stream_t *tcp, ssize_t nread, const uv_buf_t * buf) {
   }
 
   if (nread == 0) {
-    /* Everything OK, but nothing read and thus we don't write anything */
+    /* Everything OK, but nothing read so we don't write anything */
     free(buf->base);
     return;
   }
 
-  /* TODO */
+  /* TODO hook this up to ocaml */
   /* client_cbs_t * cbs = (client_cbs_t *)client->data; */
   /* if (nread > 0 && cbs->data_cb){ */
   /*   read_str = caml_copy_string(buf->base); */
@@ -268,25 +274,21 @@ void client_read_cb(uv_stream_t *tcp, ssize_t nread, const uv_buf_t * buf) {
   free(buf->base);
 }
 
-char* test_string = "GET / HTTP/1.1\r\nHost: localhost:8080\r\n\r\n";
-
 void client_connect_cb(uv_connect_t *req, int status) {
   CHECK(status, "client_connect_cb")
   LOG("Connection with server established");
   int r = uv_read_start(req->handle, alloc_cb, client_read_cb);
   CHECK(r, "uv_read_start");
 
-  /* size_t buf_len = caml_string_length(str); */
-  size_t buf_len = 41;
-  char *buf = calloc(sizeof(char), buf_len);
-  /* memcpy(buf, String_val(str), buf_len); */
-  memcpy(buf, test_string, buf_len);
+  /* Since the req is the first field inside the wrapper write_req, we can just cast to it */
+  client_connect_req_t *connect_req = (client_connect_req_t*) req;
 
   write_req_t *write_req = malloc(sizeof(write_req_t));
-  write_req->buf = uv_buf_init(buf, buf_len);
-  /* uv_stream_t *client = (uv_stream_t*)Field(res, 0); */
+  write_req->buf = connect_req->buf;
   r = uv_write(&write_req->req, req->handle, &write_req->buf, 1, write_cb);
   CHECK(r, "uv_write");
+
+  free(connect_req);
 }
 
 
@@ -295,8 +297,8 @@ int default_timeout = 60*2*1000; // 2 minutes
 /* TODO: Split this up into a reason binding for each
  * function and put the logic in reason */
 /* TODO: make this not blocking */
-CAMLprim void request(value hostv, value portv, value method){
-  CAMLparam3(hostv, portv, method);
+CAMLprim void request(value hostv, value portv, value request_str){
+  CAMLparam3(hostv, portv, request_str);
 
   uv_loop_t *loop = uv_default_loop();
 
@@ -309,7 +311,6 @@ CAMLprim void request(value hostv, value portv, value method){
   CHECK(r, "uv_timer_start");
 
   struct sockaddr_in dest;
-  /* TODO: pass in addr */
   r = uv_ip4_addr(host, port, &dest);
 
   if (r != 0) {
@@ -339,17 +340,18 @@ CAMLprim void request(value hostv, value portv, value method){
 
     r = uv_ip4_addr(ip, port, &dest);
     CHECK(r, "uv_ip4_addr");
-
-    // TODO: let server know the domain.
-    /* requestHeaders["host"] = options["hostname"]; */
   }
 
   uv_tcp_t *tcp = malloc(sizeof(uv_tcp_t));
   r = uv_tcp_init(loop, tcp);
   CHECK(r, "uv_tcp_init");
 
-  uv_connect_t connect_req;
-  r = uv_tcp_connect(&connect_req, tcp, (const struct sockaddr *) &dest, client_connect_cb);
+  size_t buf_len = caml_string_length(request_str);
+  char *buf = calloc(sizeof(char), buf_len);
+  memcpy(buf, String_val(request_str), buf_len);
+  client_connect_req_t *connect_req = malloc(sizeof(client_connect_req_t));
+  connect_req->buf = uv_buf_init(buf, buf_len);
+  r = uv_tcp_connect((uv_connect_t *) connect_req, tcp, (const struct sockaddr *) &dest, client_connect_cb);
   CHECK(r, "uv_tcp_connect");
 
   r = uv_run(tcp->loop, UV_RUN_DEFAULT);
