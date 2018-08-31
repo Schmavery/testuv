@@ -23,11 +23,6 @@ typedef struct {
   uv_buf_t buf;
 } client_connect_req_t;
 
-typedef struct {
-  value data_cb;
-  value end_cb;
-} client_cbs_t;
-
 #define LOG(m) fprintf(stderr, "%s\n", m)
 
 #define CHECK(r, msg) if (r) {                                                       \
@@ -36,14 +31,8 @@ typedef struct {
 }
 
 static void close_cb(uv_handle_t* client) {
-  client_cbs_t * cbs = (client_cbs_t *)client->data;
-  if (cbs->data_cb){
-    caml_remove_global_root(&cbs->data_cb);
-  }
-  if (cbs->end_cb){
-    caml_remove_global_root(&cbs->end_cb);
-  }
-  free(client->data);
+  value cb = (value)client->data;
+  if (cb){ caml_remove_global_root(&cb); }
   free(client);
   fprintf(stderr, "Closed connection\n");
 }
@@ -75,15 +64,15 @@ static void read_cb(uv_stream_t* client, ssize_t nread, const uv_buf_t* buf) {
   int r = 0;
   LOG("Read_cb running\n");
 
+  value cb = (value)client->data;
   /* Errors or EOF */
   if (nread < 0) {
     if (nread != UV_EOF) CHECK(nread, "read_cb");
 
     /* Client signaled that all data has been sent, so we can close the connection and are done */
-    client_cbs_t * cbs = (client_cbs_t *)client->data;
     LOG(">>>> It's all over");
-
-    if (cbs->end_cb) caml_callback(cbs->end_cb, Val_unit);
+    /* TODO technically unit is incorrect, should be empty string or smth */
+    caml_callback2(cb, Val_true, Val_unit);
     if (buf->base) free(buf->base);
     return;
   }
@@ -94,11 +83,13 @@ static void read_cb(uv_stream_t* client, ssize_t nread, const uv_buf_t* buf) {
     return;
   }
 
-  /* TODO: maybe this should be a different datatype */
-  client_cbs_t * cbs = (client_cbs_t *)client->data;
-  if (nread > 0 && cbs->data_cb){
+  /* TODO: maybe this should be a different datatype..
+   * (bigarray? array? string/bytes seems the nicest to deal with)*/
+
+  /* TODO: !!More importantly, this will truncate the data if it contains \0 */
+  if (nread > 0){
     read_str = caml_copy_string(buf->base);
-    caml_callback(cbs->data_cb, read_str);
+    caml_callback2(cb, Val_false, read_str);
   }
   free(buf->base);
   CAMLreturn0;
@@ -116,8 +107,6 @@ static void connection_cb(uv_stream_t *server, int status) {
 
   /* Init client connection using `server->loop`, passing the client handle */
   uv_tcp_t *client = malloc(sizeof(uv_tcp_t));
-  client_cbs_t *cbs = calloc(1, sizeof(client_cbs_t));
-  client->data = cbs;
   int r = uv_tcp_init(server->loop, client);
   CHECK(r, "uv_tcp_init");
 
@@ -215,21 +204,11 @@ CAMLprim void end_connection(value res){
 }
 
 /* TODO: Note.. req and res are currently the same things... */
-CAMLprim void on_data(value req, value data_cb){
-  CAMLparam2(req, data_cb);
+CAMLprim void request_on(value req, value cb){
+  CAMLparam2(req, cb);
   uv_tcp_t *client = (uv_tcp_t*)Field(req, 0);
-  client_cbs_t * cbs = (client_cbs_t *)client->data;
-  caml_register_global_root(&data_cb);
-  cbs->data_cb = data_cb;
-  CAMLreturn0;
-}
-
-CAMLprim void on_end(value req, value end_cb){
-  CAMLparam2(req, end_cb);
-  uv_tcp_t *client = (uv_tcp_t*)Field(req, 0);
-  client_cbs_t * cbs = (client_cbs_t *)client->data;
-  caml_register_global_root(&end_cb);
-  cbs->end_cb = end_cb;
+  caml_register_global_root(&cb);
+  client->data = cb;
   CAMLreturn0;
 }
 
@@ -246,14 +225,15 @@ void timeout_fired_cb(uv_timer_t* timer) {
 
 /* TODO: handle reading chunked encoding? maybe http-parser handles it */
 void client_read_cb(uv_stream_t *tcp, ssize_t nread, const uv_buf_t * buf) {
+  CAMLparam0();
+  CAMLlocal1(read_str);
   if (nread < 0) {
     if (nread != UV_EOF) CHECK(nread, "client_read_cb");
 
     /* TODO: Server signaled that all data has been sent, so we can close the connection and are done */
-    /* client_cbs_t * cbs = (client_cbs_t *)client->data; */
+    /* TODO: Return some sort of signal to ocaml that the read is closed */
     LOG(">>>> It's all over");
 
-    /* if (cbs->end_cb) caml_callback(cbs->end_cb, Val_unit); */
     if (buf->base) free(buf->base);
     return;
   }
@@ -264,20 +244,29 @@ void client_read_cb(uv_stream_t *tcp, ssize_t nread, const uv_buf_t * buf) {
     return;
   }
 
-  /* TODO hook this up to ocaml */
-  /* client_cbs_t * cbs = (client_cbs_t *)client->data; */
-  /* if (nread > 0 && cbs->data_cb){ */
-  /*   read_str = caml_copy_string(buf->base); */
-  /*   caml_callback(cbs->data_cb, read_str); */
-  /* } */
-  fprintf(stderr, "From server: %s", buf->base);
+  value cb = (value) tcp->data;
+  if (nread > 0 && cb){
+    read_str = caml_copy_string(buf->base);
+    caml_callback2(cb, Val_int(0), read_str);
+  }
+  /* fprintf(stderr, "From server: %s", buf->base); */
   free(buf->base);
+  CAMLreturn0;
 }
 
 void client_connect_cb(uv_connect_t *req, int status) {
-  CHECK(status, "client_connect_cb")
+  int r;
+  if (status != 0){
+    uv_shutdown_t *shutdown_req = malloc(sizeof(uv_shutdown_t));
+    r = uv_shutdown(shutdown_req, (uv_stream_t*) req->handle, shutdown_cb);
+    CHECK(r, "uv_shutdown");
+
+    value cb = (value) req->handle->data;
+    if (cb) caml_callback2(cb, Val_int(status), Val_unit);
+    return;
+  }
   LOG("Connection with server established");
-  int r = uv_read_start(req->handle, alloc_cb, client_read_cb);
+  r = uv_read_start(req->handle, alloc_cb, client_read_cb);
   CHECK(r, "uv_read_start");
 
   /* Since the req is the first field inside the wrapper write_req, we can just cast to it */
@@ -297,8 +286,8 @@ int default_timeout = 60*2*1000; // 2 minutes
 /* TODO: Split this up into a reason binding for each
  * function and put the logic in reason */
 /* TODO: make this not blocking */
-CAMLprim void request(value hostv, value portv, value request_str){
-  CAMLparam3(hostv, portv, request_str);
+CAMLprim void request(value hostv, value portv, value request_str, value cb){
+  CAMLparam4(hostv, portv, request_str, cb);
 
   uv_loop_t *loop = uv_default_loop();
 
@@ -340,11 +329,16 @@ CAMLprim void request(value hostv, value portv, value request_str){
 
     r = uv_ip4_addr(ip, port, &dest);
     CHECK(r, "uv_ip4_addr");
+
   }
 
   uv_tcp_t *tcp = malloc(sizeof(uv_tcp_t));
   r = uv_tcp_init(loop, tcp);
   CHECK(r, "uv_tcp_init");
+
+
+  caml_register_global_root(&cb);
+  tcp->data = (void *) cb;
 
   size_t buf_len = caml_string_length(request_str);
   char *buf = calloc(sizeof(char), buf_len);

@@ -10,6 +10,8 @@ type resT = {
   mutable contentType: string,
   mutable headers: StringMap.t(string),
   mutable wroteHeaders: bool,
+  mutable onData: bytes => unit,
+  mutable onEnd: unit => unit,
 };
 
 type responseListenT('a) =
@@ -18,9 +20,12 @@ type responseListenT('a) =
 
 external createServer : (clientT => unit) => serverT = "create_server";
 
+/* TODO: Make res different than req? */
+external requestOn : (clientT, (bool, bytes) => unit) => unit = "request_on";
+
 let createServer = cb =>
-  createServer(c =>
-    cb({
+  createServer(c => {
+    let req = {
       client: c,
       statusCode: 200,
       contentType: "text/plain",
@@ -31,8 +36,18 @@ let createServer = cb =>
           StringMap.add("Transfer-Encoding", "chunked", StringMap.empty),
         ),
       wroteHeaders: false,
-    })
-  );
+      onData: (_) => (),
+      onEnd: () => (),
+    };
+    requestOn(c, (isEnd, body) =>
+      if (isEnd) {
+        req.onEnd();
+      } else {
+        req.onData(body);
+      }
+    );
+    cb(req);
+  });
 
 external listen : (serverT, int, string) => unit = "ocamluv_listen";
 
@@ -117,22 +132,18 @@ let write = (res, msg) => {
 let setHeader = (req, s, v) =>
   req.headers = StringMap.add(s, v, req.headers);
 
-/* TODO: Make res different than req? */
-external requestOnData : (clientT, bytes => unit) => unit = "on_data";
-
-external requestOnEnd : (clientT, unit => unit) => unit = "on_end";
-
 let requestOn = (type a, req, t: responseListenT(a), cb: a) =>
   switch (t) {
-  | Data => requestOnData(req.client, cb)
-  | End => requestOnEnd(req.client, cb)
+  | Data => req.onData = cb
+  | End => req.onEnd = cb
   };
 
 external endConnection : clientT => unit = "end_connection";
 
 let endConnection = r => {
   write(r, "");
-  endConnection(r.client)
+  endConnection(r.client);
 };
 
-external request : string => int => string => unit = "request";
+external request : (string, int, string, (int, bytes) => unit) => unit =
+  "request";
