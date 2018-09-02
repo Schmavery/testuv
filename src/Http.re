@@ -36,10 +36,10 @@ let parser = (req) => {
     on_message_begin:    _ => 0,
     on_url:              (_, url, _) => {req.url = url; 0},
     on_status:           _ => 0,
-    on_header_field:     (_, f, _) => { fields := fields^ @ [f]; 0},
-    on_header_value:     (_, v, _) => { values := values^ @ [v]; 0},
+    on_header_field:     (_, f, _) => { fields := [f, ...fields^]; 0},
+    on_header_value:     (_, v, _) => { values := [v, ...values^]; 0},
     on_headers_complete: _ => {
-      List.iter2((f,v) => req.headers = StringMap.add(f, v, req.headers), fields^, values^);
+      req.headers = List.fold_left2((map, f, v) => StringMap.add(f, v, map), StringMap.empty, fields^, values^);
       0
     },
     on_body:             (_, _, _) => 0,
