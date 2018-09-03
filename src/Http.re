@@ -4,8 +4,14 @@ type serverT;
 
 type clientT;
 
+type reqT = {
+  mutable url: string,
+  mutable headers: StringMap.t(string),
+}
+
 type resT = {
   client: clientT,
+  req: reqT,
   mutable statusCode: int,
   mutable contentType: string,
   mutable headers: StringMap.t(string),
@@ -23,10 +29,37 @@ external createServer : (clientT => unit) => serverT = "create_server";
 /* TODO: Make res different than req? */
 external requestOn : (clientT, (bool, bytes) => unit) => unit = "request_on";
 
+let parser = (req) => {
+  let fields = ref([]);
+  let values = ref([]);
+  let settings: HttpParser.http_parser_settings = {
+    on_message_begin:    _ => 0,
+    on_url:              (_, url, _) => {req.url = url; 0},
+    on_status:           _ => 0,
+    on_header_field:     (_, f, _) => { fields := [f, ...fields^]; 0},
+    on_header_value:     (_, v, _) => { values := [v, ...values^]; 0},
+    on_headers_complete: _ => {
+      req.headers = List.fold_left2((map, f, v) => StringMap.add(f, v, map), StringMap.empty, fields^, values^);
+      0
+    },
+    on_body:             (_, _, _) => 0,
+    on_message_complete: _ => 0
+  };
+  let p = HttpParser.init(settings, HttpParser.HTTP_REQUEST);
+  (data, cb) => {
+    let _ = HttpParser.execute(p, data);
+    cb(data)
+  }
+}
+
 let createServer = cb =>
   createServer(c => {
-    let req = {
+    let res = {
       client: c,
+      req: {
+        url: "",
+        headers: StringMap.empty,
+      },
       statusCode: 200,
       contentType: "text/plain",
       headers:
@@ -39,14 +72,16 @@ let createServer = cb =>
       onData: (_) => (),
       onEnd: () => (),
     };
+    let onParseComplete = parser(res.req);
+
     requestOn(c, (isEnd, body) =>
       if (isEnd) {
-        req.onEnd();
+        res.onEnd();
       } else {
-        req.onData(body);
+        onParseComplete(body, res.onData);
       }
     );
-    cb(req);
+    cb(res);
   });
 
 external listen : (serverT, int, string) => unit = "ocamluv_listen";

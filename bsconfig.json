@@ -1,7 +1,7 @@
 {
   "name": "Reasongl",
   "sources": [{ "dir": "src" }],
-  "static-libraries": ["libuv.a", "lib/libuv_c.o"],
+  "static-libraries": ["libuv.a", "lib/libuv_c.o", "lib/http_parser_stubs.o", "lib/libhttp_parser.o"],
   "warnings": {"number": "-44"},
   "build-script": "build_script.re",
   "entries": [ {
