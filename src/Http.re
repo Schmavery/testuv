@@ -167,7 +167,7 @@ let write = (res, msg) => {
 let setHeader = (req, s, v) =>
   req.headers = StringMap.add(s, v, req.headers);
 
-let requestOn = (type a, req, t: responseListenT(a), cb: a) =>
+let on = (type a, req, t: responseListenT(a), cb: a) =>
   switch (t) {
   | Data => req.onData = cb
   | End => req.onEnd = cb

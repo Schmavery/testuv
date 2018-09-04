@@ -208,7 +208,7 @@ CAMLprim void request_on(value req, value cb){
   CAMLparam2(req, cb);
   uv_tcp_t *client = (uv_tcp_t*)Field(req, 0);
   caml_register_global_root(&cb);
-  client->data = cb;
+  client->data = (void *) cb;
   CAMLreturn0;
 }
 
