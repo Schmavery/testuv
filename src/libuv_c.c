@@ -293,6 +293,7 @@ CAMLprim void request(value hostv, value portv, value request_str, value cb){
 
   char* host = String_val(hostv);
   int port = Int_val(portv);
+  /* TODO: implement timeout */
   uv_timer_t timer;
   int r = uv_timer_init(loop, &timer);
   CHECK(r, "uv_timer");
@@ -347,9 +348,12 @@ CAMLprim void request(value hostv, value portv, value request_str, value cb){
   connect_req->buf = uv_buf_init(buf, buf_len);
   r = uv_tcp_connect((uv_connect_t *) connect_req, tcp, (const struct sockaddr *) &dest, client_connect_cb);
   CHECK(r, "uv_tcp_connect");
+  CAMLreturn0;
+}
 
-  r = uv_run(tcp->loop, UV_RUN_DEFAULT);
+CAMLprim void run_uv_loop(){
+  CAMLparam0();
+  int r = uv_run(uv_default_loop(), UV_RUN_DEFAULT);
   CHECK(r, "uv_run request")
-
   CAMLreturn0;
 }

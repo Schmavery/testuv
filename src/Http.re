@@ -192,3 +192,10 @@ let endConnection = r => {
 
 external request : (string, int, string, (int, bytes) => unit) => unit =
   "request";
+
+external run : unit => unit = "run_uv_loop";
+
+let run = cb => {
+  cb();
+  run();
+};
