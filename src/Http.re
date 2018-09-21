@@ -24,7 +24,7 @@ type responseListenT('a) =
   | End: responseListenT(unit => unit);
 
 /* TODO: Make res different than req? */
-external requestOn : (clientT, (bool, bytes) => unit) => unit = "request_on";
+external requestOn : (clientT, bytes => unit) => unit = "request_on";
 
 let secondArg = (cb, _, v, _) => {
   cb(v);
@@ -85,13 +85,12 @@ let createServer = (cb: (reqT, resT) => unit) =>
 
     let parser = createParser(cb, res);
 
-    requestOn(c, (isEnd, data) =>
-      if (isEnd) {
-        res.onEnd();
-      } else {
+    requestOn(
+      c,
+      data => {
         let _ = HttpParser.execute(parser, data);
         ();
-      }
+      },
     );
   });
 

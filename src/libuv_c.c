@@ -71,8 +71,8 @@ static void read_cb(uv_stream_t* client, ssize_t nread, const uv_buf_t* buf) {
 
     /* Client signaled that all data has been sent, so we can close the connection and are done */
     LOG(">>>> It's all over");
-    /* TODO technically unit is incorrect, should be empty string or smth */
-    caml_callback2(cb, Val_true, Val_unit);
+    read_str = caml_copy_string("");
+    caml_callback(cb, read_str);
     if (buf->base) free(buf->base);
     return;
   }
@@ -89,7 +89,7 @@ static void read_cb(uv_stream_t* client, ssize_t nread, const uv_buf_t* buf) {
   /* TODO: !!More importantly, this will truncate the data if it contains \0 */
   if (nread > 0){
     read_str = caml_copy_string(buf->base);
-    caml_callback2(cb, Val_false, read_str);
+    caml_callback(cb, read_str);
   }
   free(buf->base);
   CAMLreturn0;
