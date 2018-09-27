@@ -9,7 +9,8 @@
     "build:bytecode": "bsb -make-world -backend bytecode",
     "clean": "bsb -clean-world",
     "server": "./lib/bs/native/exampleserver.native",
-    "client": "./lib/bs/native/exampleclient.native"
+    "client": "./lib/bs/native/exampleclient.native",
+    "static": "./lib/bs/native/examplestatic.native"
   },
   "author": "",
   "license": "ISC",

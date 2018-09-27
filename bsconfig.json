@@ -11,6 +11,9 @@
     "backend": "native",
     "main-module": "ExampleClient"
   }, {
+    "backend": "native",
+    "main-module": "ExampleStatic"
+  }, {
     "backend": "bytecode",
     "main-module": "Example"
   }],
