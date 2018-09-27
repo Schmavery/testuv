@@ -195,7 +195,10 @@ external request : (string, int, string, (int, bytes) => unit) => unit =
 
 external run : unit => unit = "run_uv_loop";
 
-let run = cb => {
+let run = (cb: unit => unit) => {
   cb();
   run();
 };
+
+exception HttpError(string);
+Callback.register_exception("http-exception-type", HttpError("any string"));

@@ -7,11 +7,13 @@
 #include <caml/memory.h>
 #include <caml/mlvalues.h>
 #include <caml/callback.h>
+#include <caml/fail.h>
 
 #include "../include/uv.h"
 
+typedef value caml_generated_constant[1];
+extern caml_generated_constant caml_exn_Failure;
 /* TODO: unify client and server as much as possible */
-
 
 typedef struct {
   uv_write_t req;
@@ -25,9 +27,18 @@ typedef struct {
 
 #define LOG(m) fprintf(stderr, "%s\n", m)
 
-#define CHECK(r, msg) if (r) {                                                       \
-  fprintf(stderr, "%s: [%s(%d): %s]\n", msg, uv_err_name((r)), (int) r, uv_strerror((r))); \
-  exit(1);                                                                           \
+#define CHECK(r, msg) if (r) {                  \
+  caml_raise_with_arg((value) caml_exn_Failure, \
+      caml_alloc_sprintf("%s: [%s(%d): %s]\n",  \
+        msg, uv_err_name((r)), (int) r, uv_strerror((r)))); \
+}
+
+/* Shim for caml function that isn't in this version of ocaml */
+CAMLexport value caml_alloc_initialized_string (mlsize_t len, const char *p)
+{
+  value result = caml_alloc_string (len);
+  memcpy((char *)String_val(result), p, len);
+  return result;
 }
 
 static void close_cb(uv_handle_t* client) {
@@ -69,9 +80,9 @@ static void read_cb(uv_stream_t* client, ssize_t nread, const uv_buf_t* buf) {
   if (nread < 0) {
     if (nread != UV_EOF) CHECK(nread, "read_cb");
 
-    /* Client signaled that all data has been sent, so we can close the connection and are done */
-    LOG(">>>> It's all over");
-    read_str = caml_copy_string("");
+    /* Client signaled that all data has been sent, so we send
+     * an empty string to ocaml to tell it to close the connection */
+    read_str = caml_alloc_string(0);
     caml_callback(cb, read_str);
     if (buf->base) free(buf->base);
     return;
@@ -83,12 +94,8 @@ static void read_cb(uv_stream_t* client, ssize_t nread, const uv_buf_t* buf) {
     return;
   }
 
-  /* TODO: maybe this should be a different datatype..
-   * (bigarray? array? string/bytes seems the nicest to deal with)*/
-
-  /* TODO: !!More importantly, this will truncate the data if it contains \0 */
   if (nread > 0){
-    read_str = caml_copy_string(buf->base);
+    read_str = caml_alloc_initialized_string(nread, buf->base);
     caml_callback(cb, read_str);
   }
   free(buf->base);
@@ -223,17 +230,17 @@ void timeout_fired_cb(uv_timer_t* timer) {
 }
 
 
-/* TODO: handle reading chunked encoding? maybe http-parser handles it */
 void client_read_cb(uv_stream_t *tcp, ssize_t nread, const uv_buf_t * buf) {
   CAMLparam0();
   CAMLlocal1(read_str);
+
+  value cb = (value) tcp->data;
   if (nread < 0) {
     if (nread != UV_EOF) CHECK(nread, "client_read_cb");
 
     /* TODO: Server signaled that all data has been sent, so we can close the connection and are done */
-    /* TODO: Return some sort of signal to ocaml that the read is closed */
-    LOG(">>>> It's all over");
-
+    read_str = caml_alloc_string(0);
+    caml_callback(cb, read_str);
     if (buf->base) free(buf->base);
     return;
   }
@@ -244,12 +251,10 @@ void client_read_cb(uv_stream_t *tcp, ssize_t nread, const uv_buf_t * buf) {
     return;
   }
 
-  value cb = (value) tcp->data;
   if (nread > 0 && cb){
-    read_str = caml_copy_string(buf->base);
-    caml_callback2(cb, Val_int(0), read_str);
+    read_str = caml_alloc_initialized_string(nread, buf->base);
+    caml_callback(cb, read_str);
   }
-  /* fprintf(stderr, "From server: %s", buf->base); */
   free(buf->base);
   CAMLreturn0;
 }
@@ -262,6 +267,7 @@ void client_connect_cb(uv_connect_t *req, int status) {
     CHECK(r, "uv_shutdown");
 
     value cb = (value) req->handle->data;
+    /* TODO: the second arg should be an empty string */
     if (cb) caml_callback2(cb, Val_int(status), Val_unit);
     return;
   }
@@ -280,14 +286,11 @@ void client_connect_cb(uv_connect_t *req, int status) {
   free(connect_req);
 }
 
-
-int default_timeout = 60*2*1000; // 2 minutes
-
 /* TODO: Split this up into a reason binding for each
  * function and put the logic in reason */
-/* TODO: make this not blocking */
 CAMLprim void request(value hostv, value portv, value request_str, value cb){
   CAMLparam4(hostv, portv, request_str, cb);
+  int default_timeout = 60*2*1000; // 2 minutes
 
   uv_loop_t *loop = uv_default_loop();
 
