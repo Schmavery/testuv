@@ -141,7 +141,8 @@ let endConnection = r => {
 
 let run = (cb: unit => unit) => {
   cb();
-  UvBind.runLoop();
+  let loop = UvBind.uv_default_loop();
+  UvBind.uv_run(loop, UV_RUN_DEFAULT);
 };
 
 external request : (string, int, string, (int, bytes) => unit) => unit =
@@ -153,30 +154,36 @@ Callback.register_exception("http-exception-type", HttpError("any string"));
 let createServer = (cb: (reqT, resT) => unit) => {
   let loop = UvBind.uv_default_loop();
   let server = UvBind.uv_tcp_init(loop);
-  let callback = client => {
-    let res = {
-      client,
-      statusCode: 200,
-      contentType: "text/plain",
-      headers:
-        StringMap.add(
-          "Connection",
-          "keep-alive",
-          StringMap.add("Transfer-Encoding", "chunked", StringMap.empty),
-        ),
-      wroteHeaders: false,
-      onData: _ => (),
-      onEnd: () => (),
-    };
-    let parser = createParser(cb, res);
+  let callback = () => {
+    let client = UvBind.uv_tcp_init(loop);
+    if (UvBind.uv_accept(server, client) == 0) {
+      let res = {
+        client,
+        statusCode: 200,
+        contentType: "text/plain",
+        headers:
+          StringMap.add(
+            "Connection",
+            "keep-alive",
+            StringMap.add("Transfer-Encoding", "chunked", StringMap.empty),
+          ),
+        wroteHeaders: false,
+        onData: _ => (),
+        onEnd: () => (),
+      };
+      let parser = createParser(cb, res);
 
-    UvBind.requestOn(
-      client,
-      data => {
-        let _ = HttpParser.execute(parser, data);
-        ();
-      },
-    );
+      UvBind.requestOn(
+        client,
+        data => {
+          let _ = HttpParser.execute(parser, data);
+          ();
+        },
+      );
+      UvBind.uv_read_start(client);
+    } else {
+      UvBind.uv_shutdown(client);
+    };
   };
   (callback, server);
 };
@@ -188,8 +195,8 @@ let listen = ((callback, server), port, host) => {
     | {h_addr_list: [||]} => host
     | {h_addr_list} => Unix.string_of_inet_addr(h_addr_list[0])
     };
-  let loop = UvBind.uv_default_loop();
   UvBind.uv_tcp_bind(server, port, host, UvBind.af_inet);
   UvBind.uv_listen(server, UvBind.somaxconn, callback);
+  let loop = UvBind.uv_default_loop();
   UvBind.uv_run(loop, UV_RUN_DEFAULT);
 };

@@ -103,42 +103,32 @@ static void read_cb(uv_stream_t* client, ssize_t nread, const uv_buf_t* buf) {
 }
 
 static void connection_cb(uv_stream_t *server, int status) {
-  CAMLparam0();
-  CAMLlocal1(res);
   CHECK(status, "connection_cb");
-  uv_shutdown_t *shutdown_req;
+  caml_callback((value) server->data, Val_unit);
+}
 
-  /* Accept client connection */
-  fprintf(stderr, "Accepting Connection\n");
+CAMLprim value uv_accept_ocaml(value server_ocaml, value client_ocaml){
+  CAMLparam2(server_ocaml, client_ocaml);
+  uv_stream_t *server = (uv_stream_t *) Field(server_ocaml, 0);
+  uv_stream_t *client = (uv_stream_t *) Field(client_ocaml, 0);
+  int r = uv_accept(server, client);
+  CAMLreturn(Val_int(r));
+}
 
-  /* Init client connection using `server->loop`, passing the client handle */
-  uv_tcp_t *client = malloc(sizeof(uv_tcp_t));
-  int r = uv_tcp_init(server->loop, client);
-  CHECK(r, "uv_tcp_init");
-
-  fprintf(stderr, "Initialized client\n");
-
-  /* 4.2. Accept the now initialized client connection */
-  r = uv_accept(server, (uv_stream_t*) client);
-  if (r) {
-    fprintf(stderr, "trying to accept connection %d", r);
-
-    shutdown_req = malloc(sizeof(uv_shutdown_t));
-    r = uv_shutdown(shutdown_req, (uv_stream_t*) client, shutdown_cb);
-    CHECK(r, "uv_shutdown");
-  }
-
-
-  /* TODO: add a finalize and make it a Custom_tag? */
-  /* TODO: put a client_cbs struct on the client->data */
-  res = caml_alloc(1, Abstract_tag);
-  Field(res, 0) = (long) client;
-  caml_callback((value) server->data, res);
-
-  /* Start reading after allowing the user to set up listeners. */
-  r = uv_read_start((uv_stream_t*) client, alloc_cb, read_cb);
+CAMLprim void uv_read_start_ocaml(value stream_ocaml){
+  CAMLparam1(stream_ocaml);
+  uv_stream_t *stream = (uv_stream_t *) Field(stream_ocaml, 0);
+  int r = uv_read_start(stream, alloc_cb, read_cb);
   CHECK(r, "uv_read_start");
+  CAMLreturn0;
+}
 
+CAMLprim void uv_shutdown_ocaml(value stream_ocaml){
+  CAMLparam1(stream_ocaml);
+  uv_stream_t *stream = (uv_stream_t *) Field(stream_ocaml, 0);
+  uv_shutdown_t *shutdown_req = malloc(sizeof(uv_shutdown_t));
+  int r = uv_shutdown(shutdown_req, stream, shutdown_cb);
+  CHECK(r, "uv_shutdown");
   CAMLreturn0;
 }
 
