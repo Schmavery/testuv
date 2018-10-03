@@ -122,7 +122,7 @@ let write = (res, msg) => {
     | _ => headerStr ++ msg
     | exception Not_found => headerStr ++ msg
     };
-  UvBind.write(res.client, chunkedMsg);
+  UvBind.uv_write(res.client, chunkedMsg);
 };
 
 let setHeader = (req, s, v) =>
@@ -136,7 +136,7 @@ let on = (type a, req, t: responseListenT(a), cb: a) =>
 
 let endConnection = r => {
   write(r, "");
-  UvBind.endConnection(r.client);
+  UvBind.uv_shutdown(r.client);
 };
 
 let run = (cb: unit => unit) => {

@@ -1,5 +1,6 @@
 #include <unistd.h>
 #include <stdio.h> // TODO: remove this
+#include <string.h>
 
 #include <caml/alloc.h>
 #include <caml/bigarray.h>
@@ -57,7 +58,7 @@ static void shutdown_cb(uv_shutdown_t* req, int status) {
 static void write_cb(uv_write_t *req, int status) {
   CHECK(status, "write_cb");
   /* Since the req is the first field inside the wrapper write_req, we can just cast to it */
-  fprintf(stderr, "Actually wrote things\n");
+  /* fprintf(stderr, "Actually wrote things\n"); */
   write_req_t *write_req = (write_req_t*) req;
   free(write_req->buf.base);
   free(write_req);
@@ -181,8 +182,8 @@ CAMLprim void uv_run_ocaml(value loop, value mode){
   CAMLreturn0;
 }
 
-CAMLprim void ocamluv_write(value res, value str){
-  CAMLparam2(res, str);
+CAMLprim void uv_write_ocaml(value tcp, value str){
+  CAMLparam2(tcp, str);
 
   size_t buf_len = caml_string_length(str);
   char *buf = calloc(sizeof(char), buf_len);
@@ -190,18 +191,9 @@ CAMLprim void ocamluv_write(value res, value str){
 
   write_req_t *write_req = malloc(sizeof(write_req_t));
   write_req->buf = uv_buf_init(buf, buf_len);
-  uv_stream_t *client = (uv_stream_t*)Field(res, 0);
+  uv_stream_t *client = (uv_stream_t*)Field(tcp, 0);
   int r = uv_write(&write_req->req, client, &write_req->buf, 1, write_cb);
   CHECK(r, "uv_write");
-  CAMLreturn0;
-}
-
-CAMLprim void end_connection(value res){
-  CAMLparam1(res);
-  uv_tcp_t *client = (uv_tcp_t*)Field(res, 0);
-  uv_shutdown_t *shutdown_req = malloc(sizeof(uv_shutdown_t));
-  int r = uv_shutdown(shutdown_req, (uv_stream_t*) client, shutdown_cb);
-  CHECK(r, "uv_shutdown");
   CAMLreturn0;
 }
 
