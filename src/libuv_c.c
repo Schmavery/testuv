@@ -163,18 +163,9 @@ CAMLprim value uv_tcp_init_ocaml(value loop){
   CAMLreturn(tcp_ocaml);
 }
 
-/* CAMLprim void ocaml_set_tcp_callback(value tcp_ocaml, value data){ */
-/*   CAMLparam2(tcp_ocaml, data); */
-/*   caml_register_global_root(&data); */
-/*   uv_tcp_t *tcp = (uv_tcp_t *) Field(tcp_ocaml, 0); */
-/*   tcp->data = (void *)data; */
-/*   CAMLreturn0; */
-/* } */
-
 CAMLprim void uv_tcp_bind_ocaml(value tcp_ocaml, value port, value host, value flags){
   CAMLparam4(tcp_ocaml, port, host, flags);
   uv_tcp_t *tcp = (uv_tcp_t *) Field(tcp_ocaml, 0);
-  /* fprintf(stderr, "Creating address: %s, %d\n", String_val(host), Int_val(port)); */
   struct sockaddr_in addr;
   int r = uv_ip4_addr(String_val(host), Int_val(port), &addr);
   CHECK(r, "uv_ip4_addr");
