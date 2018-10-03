@@ -26,6 +26,7 @@ typedef struct {
 } client_connect_req_t;
 
 #define LOG(m) fprintf(stderr, "%s\n", m)
+#define LOGPointer(m) fprintf(stderr, "%p\n", m)
 
 #define CHECK(r, msg) if (r) {                  \
   caml_raise_with_arg((value) caml_exn_Failure, \
@@ -63,8 +64,7 @@ static void write_cb(uv_write_t *req, int status) {
 }
 
 static void alloc_cb(uv_handle_t *handle, size_t size, uv_buf_t *buf) {
-  // TODO: doublecheck this works: Allocate 1 extra byte to have a null-terminated sequence.
-  buf->base = calloc(size+1, 1);
+  buf->base = calloc(size, 1);
   if (buf->base == NULL) fprintf(stderr, "alloc_cb buffer didn't properly initialize");
   buf->len = size;
 }
@@ -101,7 +101,6 @@ static void read_cb(uv_stream_t* client, ssize_t nread, const uv_buf_t* buf) {
   free(buf->base);
   CAMLreturn0;
 }
-
 
 static void connection_cb(uv_stream_t *server, int status) {
   CAMLparam0();
@@ -143,46 +142,61 @@ static void connection_cb(uv_stream_t *server, int status) {
   CAMLreturn0;
 }
 
-/* TODO: handle failures using ocaml exceptions */
-CAMLprim value create_server(value listen_cb){
+CAMLprim value uv_default_loop_ocaml(){
   CAMLparam0();
-  CAMLlocal1(server);
-  /* TODO: add a finalize to free some stuff */
-  server = caml_alloc(1, Abstract_tag);
-
+  CAMLlocal1(loop_ocaml);
   uv_loop_t *loop = uv_default_loop();
-  uv_tcp_t *tcp_server = malloc(sizeof(uv_tcp_t));
-  int r = uv_tcp_init(loop, tcp_server);
-  CHECK(r, "uv_tcp_init");
-
-  caml_register_global_root(&listen_cb);
-  // TODO: make this a struct possibly
-  tcp_server->data = (void *)listen_cb;
-
-  Field(server, 0) = (long) tcp_server;
-  CAMLreturn(server);
+  loop_ocaml = caml_alloc(1, Abstract_tag);
+  Field(loop_ocaml, 0) = (value) loop;
+  CAMLreturn(loop_ocaml);
 }
 
-CAMLprim void ocamluv_listen(value server, value port, value host){
-  CAMLparam3(server, port, host);
-  uv_tcp_t *tcp_server = (uv_tcp_t*)Field(server, 0);
+CAMLprim value uv_tcp_init_ocaml(value loop){
+  CAMLparam1(loop);
+  CAMLlocal1(tcp_ocaml);
+  /* TODO: add a finalize to close server and free some stuff */
+  tcp_ocaml = caml_alloc(1, Abstract_tag);
+  uv_tcp_t *tcp = malloc(sizeof(uv_tcp_t));
+  int r = uv_tcp_init((uv_loop_t *) Field(loop, 0), tcp);
+  CHECK(r, "uv_tcp_init");
+  Field(tcp_ocaml, 0) = (value) tcp;
+  CAMLreturn(tcp_ocaml);
+}
 
+/* CAMLprim void ocaml_set_tcp_callback(value tcp_ocaml, value data){ */
+/*   CAMLparam2(tcp_ocaml, data); */
+/*   caml_register_global_root(&data); */
+/*   uv_tcp_t *tcp = (uv_tcp_t *) Field(tcp_ocaml, 0); */
+/*   tcp->data = (void *)data; */
+/*   CAMLreturn0; */
+/* } */
+
+CAMLprim void uv_tcp_bind_ocaml(value tcp_ocaml, value port, value host, value flags){
+  CAMLparam4(tcp_ocaml, port, host, flags);
+  uv_tcp_t *tcp = (uv_tcp_t *) Field(tcp_ocaml, 0);
+  /* fprintf(stderr, "Creating address: %s, %d\n", String_val(host), Int_val(port)); */
   struct sockaddr_in addr;
-  fprintf(stderr, "Creating address: %s, %d\n", String_val(host), Int_val(port));
   int r = uv_ip4_addr(String_val(host), Int_val(port), &addr);
   CHECK(r, "uv_ip4_addr");
-
-  // TODO: unhardcode AF_INET?
-  r = uv_tcp_bind((uv_tcp_t*) tcp_server, (struct sockaddr*) &addr, AF_INET);
+  r = uv_tcp_bind((uv_tcp_t*) tcp, (struct sockaddr*) &addr, Int_val(flags));
   CHECK(r, "uv_tcp_bind");
+  CAMLreturn0;
+}
 
-  // TODO: unhardcode SOMAXCONN?
-  r = uv_listen((uv_stream_t*) tcp_server, SOMAXCONN, connection_cb);
+CAMLprim void uv_listen_ocaml(value tcp_ocaml, value backlog, value cb){
+  CAMLparam3(tcp_ocaml, backlog, cb);
+  uv_tcp_t *tcp = (uv_tcp_t *) Field(tcp_ocaml, 0);
+  tcp->data = (void *) cb;
+  int r = uv_listen((uv_stream_t*) tcp, Int_val(backlog), connection_cb);
   CHECK(r, "uv_listen");
+  CAMLreturn0;
+}
 
-  r = uv_run(tcp_server->loop, UV_RUN_DEFAULT);
+CAMLprim void uv_run_ocaml(value loop, value mode){
+  CAMLparam1(loop);
+  uv_tcp_t *tcp = malloc(sizeof(uv_tcp_t));
+  int r = uv_run((uv_loop_t *) Field(loop, 0), Int_val(mode));
   CHECK(r, "uv_run");
-
   CAMLreturn0;
 }
 
@@ -261,7 +275,10 @@ void client_read_cb(uv_stream_t *tcp, ssize_t nread, const uv_buf_t * buf) {
 
 void client_connect_cb(uv_connect_t *req, int status) {
   int r;
+  /* Since the req is the first field inside the wrapper write_req, we can just cast to it */
+  client_connect_req_t *connect_req = (client_connect_req_t*) req;
   if (status != 0){
+    free(connect_req);
     uv_shutdown_t *shutdown_req = malloc(sizeof(uv_shutdown_t));
     r = uv_shutdown(shutdown_req, (uv_stream_t*) req->handle, shutdown_cb);
     CHECK(r, "uv_shutdown");
@@ -274,9 +291,6 @@ void client_connect_cb(uv_connect_t *req, int status) {
   LOG("Connection with server established");
   r = uv_read_start(req->handle, alloc_cb, client_read_cb);
   CHECK(r, "uv_read_start");
-
-  /* Since the req is the first field inside the wrapper write_req, we can just cast to it */
-  client_connect_req_t *connect_req = (client_connect_req_t*) req;
 
   write_req_t *write_req = malloc(sizeof(write_req_t));
   write_req->buf = connect_req->buf;

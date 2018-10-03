@@ -1,16 +1,12 @@
 module StringMap = Map.Make(String);
 
-type serverT;
-
-type clientT;
-
 type reqT = {
   url: string,
   headers: StringMap.t(string),
 };
 
 type resT = {
-  client: clientT,
+  client: UvBind.clientT,
   mutable statusCode: int,
   mutable contentType: string,
   mutable headers: StringMap.t(string),
@@ -22,9 +18,6 @@ type resT = {
 type responseListenT('a) =
   | Data: responseListenT(string => unit)
   | End: responseListenT(unit => unit);
-
-/* TODO: Make res different than req? */
-external requestOn : (clientT, bytes => unit) => unit = "request_on";
 
 let secondArg = (cb, _, v, _) => {
   cb(v);
@@ -64,53 +57,11 @@ let createParser = (req_cb, res) => {
   HttpParser.init(settings, HttpParser.HTTP_REQUEST);
 };
 
-external createServer : (clientT => unit) => serverT = "create_server";
-
-let createServer = (cb: (reqT, resT) => unit) =>
-  createServer(c => {
-    let res = {
-      client: c,
-      statusCode: 200,
-      contentType: "text/plain",
-      headers:
-        StringMap.add(
-          "Connection",
-          "keep-alive",
-          StringMap.add("Transfer-Encoding", "chunked", StringMap.empty),
-        ),
-      wroteHeaders: false,
-      onData: _ => (),
-      onEnd: () => (),
-    };
-
-    let parser = createParser(cb, res);
-
-    requestOn(
-      c,
-      data => {
-        let _ = HttpParser.execute(parser, data);
-        ();
-      },
-    );
-  });
-
-external listen : (serverT, int, string) => unit = "ocamluv_listen";
-
-let listen = (server, port, host) =>
-  switch (Unix.gethostbyname(host)) {
-  | exception Not_found => listen(server, port, host)
-  | {h_addr_list: [||]} => listen(server, port, host)
-  | {h_addr_list} =>
-    listen(server, port, Unix.string_of_inet_addr(h_addr_list[0]))
-  };
-
 let getStatusCodeName = n =>
   switch (n) {
   | 200 => "OK"
   | _ => "Unknown"
   };
-
-external write : (clientT, string) => unit = "ocamluv_write";
 
 /* Ocaml why you no strftime */
 /* Example: Wed, 22 Aug 2018 08:00:12 GMT */
@@ -171,7 +122,7 @@ let write = (res, msg) => {
     | _ => headerStr ++ msg
     | exception Not_found => headerStr ++ msg
     };
-  write(res.client, chunkedMsg);
+  UvBind.write(res.client, chunkedMsg);
 };
 
 let setHeader = (req, s, v) =>
@@ -183,22 +134,62 @@ let on = (type a, req, t: responseListenT(a), cb: a) =>
   | End => req.onEnd = cb
   };
 
-external endConnection : clientT => unit = "end_connection";
-
 let endConnection = r => {
   write(r, "");
-  endConnection(r.client);
+  UvBind.endConnection(r.client);
+};
+
+let run = (cb: unit => unit) => {
+  cb();
+  UvBind.runLoop();
 };
 
 external request : (string, int, string, (int, bytes) => unit) => unit =
   "request";
 
-external run : unit => unit = "run_uv_loop";
-
-let run = (cb: unit => unit) => {
-  cb();
-  run();
-};
-
 exception HttpError(string);
 Callback.register_exception("http-exception-type", HttpError("any string"));
+
+let createServer = (cb: (reqT, resT) => unit) => {
+  let loop = UvBind.uv_default_loop();
+  let server = UvBind.uv_tcp_init(loop);
+  let callback = client => {
+    let res = {
+      client,
+      statusCode: 200,
+      contentType: "text/plain",
+      headers:
+        StringMap.add(
+          "Connection",
+          "keep-alive",
+          StringMap.add("Transfer-Encoding", "chunked", StringMap.empty),
+        ),
+      wroteHeaders: false,
+      onData: _ => (),
+      onEnd: () => (),
+    };
+    let parser = createParser(cb, res);
+
+    UvBind.requestOn(
+      client,
+      data => {
+        let _ = HttpParser.execute(parser, data);
+        ();
+      },
+    );
+  };
+  (callback, server);
+};
+
+let listen = ((callback, server), port, host) => {
+  let host =
+    switch (Unix.gethostbyname(host)) {
+    | exception Not_found => host
+    | {h_addr_list: [||]} => host
+    | {h_addr_list} => Unix.string_of_inet_addr(h_addr_list[0])
+    };
+  let loop = UvBind.uv_default_loop();
+  UvBind.uv_tcp_bind(server, port, host, UvBind.af_inet);
+  UvBind.uv_listen(server, UvBind.somaxconn, callback);
+  UvBind.uv_run(loop, UV_RUN_DEFAULT);
+};
