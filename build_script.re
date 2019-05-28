@@ -2,7 +2,7 @@ open Bsb_internals;
 
 let (+/) = Filename.concat;
 
-gcc("lib" +/ "libuv_c.o", ["src" +/ "libuv_c.c"]);
+gcc("lib" +/ "libuv_c.o", ~flags=["-g"], ["src" +/ "libuv_c.c"]);
 
 if (! Sys.file_exists("http-parser" +/ "http_parser.c")) {
   prerr_endline("Error: Download git submodules before building.");

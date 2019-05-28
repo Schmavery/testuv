@@ -1,3 +1,4 @@
+#define CAML_NAME_SPACE
 #include <unistd.h>
 #include <stdio.h> // TODO: remove this
 #include <string.h>
@@ -26,13 +27,17 @@ typedef struct {
   uv_buf_t buf;
 } client_connect_req_t;
 
+static value global_listen_callback;
+
 #define LOG(m) fprintf(stderr, "%s\n", m)
-#define LOGPointer(m) fprintf(stderr, "%p\n", m)
+#define LOGPointer(m) fprintf(stderr, "Pointer: %p\n", m)
 
 #define CHECK(r, msg) if (r) {                  \
-  caml_raise_with_arg((value) caml_exn_Failure, \
-      caml_alloc_sprintf("%s: [%s(%d): %s]\n",  \
-        msg, uv_err_name((r)), (int) r, uv_strerror((r)))); \
+  fprintf(stderr, "OH NO AN ERROR: %s\n", msg);   \
+}
+
+#define CHECKNULL(r, msg) if (r == 0) { \
+  fprintf(stderr, "%s was NULL\n", msg);   \
 }
 
 /* Shim for caml function that isn't in this version of ocaml */
@@ -45,7 +50,7 @@ CAMLexport value caml_alloc_initialized_string (mlsize_t len, const char *p)
 
 static void close_cb(uv_handle_t* client) {
   value cb = (value)client->data;
-  if (cb){ caml_remove_global_root(&cb); }
+  if (cb){ caml_remove_global_root((value *) &(client->data)); }
   free(client);
   fprintf(stderr, "Closed connection\n");
 }
@@ -71,20 +76,15 @@ static void alloc_cb(uv_handle_t *handle, size_t size, uv_buf_t *buf) {
 }
 
 static void read_cb(uv_stream_t* client, ssize_t nread, const uv_buf_t* buf) {
-  CAMLparam0();
-  CAMLlocal1(read_str);
-  int r = 0;
-  LOG("Read_cb running\n");
-
   value cb = (value)client->data;
+  CHECKNULL(cb, "read_cb");
   /* Errors or EOF */
   if (nread < 0) {
     if (nread != UV_EOF) CHECK(nread, "read_cb");
 
     /* Client signaled that all data has been sent, so we send
      * an empty string to ocaml to tell it to close the connection */
-    read_str = caml_alloc_string(0);
-    caml_callback(cb, read_str);
+    caml_callback(cb, caml_alloc_initialized_string(nread, ""));
     if (buf->base) free(buf->base);
     return;
   }
@@ -96,11 +96,9 @@ static void read_cb(uv_stream_t* client, ssize_t nread, const uv_buf_t* buf) {
   }
 
   if (nread > 0){
-    read_str = caml_alloc_initialized_string(nread, buf->base);
-    caml_callback(cb, read_str);
+    caml_callback(cb, caml_alloc_initialized_string(nread, buf->base));
   }
   free(buf->base);
-  CAMLreturn0;
 }
 
 static void connection_cb(uv_stream_t *server, int status) {
@@ -169,6 +167,7 @@ CAMLprim void uv_listen_ocaml(value tcp_ocaml, value backlog, value cb){
   CAMLparam3(tcp_ocaml, backlog, cb);
   uv_tcp_t *tcp = (uv_tcp_t *) Field(tcp_ocaml, 0);
   tcp->data = (void *) cb;
+  caml_register_global_root((value *) &(tcp->data));
   int r = uv_listen((uv_stream_t*) tcp, Int_val(backlog), connection_cb);
   CHECK(r, "uv_listen");
   CAMLreturn0;
@@ -201,8 +200,9 @@ CAMLprim void uv_write_ocaml(value tcp, value str){
 CAMLprim void request_on(value req, value cb){
   CAMLparam2(req, cb);
   uv_tcp_t *client = (uv_tcp_t*)Field(req, 0);
-  caml_register_global_root(&cb);
   client->data = (void *) cb;
+  caml_register_global_root((value *) &(client->data));
+  LOGPointer(client->data);
   CAMLreturn0;
 }
 

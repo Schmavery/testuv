@@ -23,6 +23,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#define CAML_NAME_SPACE
 #include <caml/alloc.h>
 #include <caml/callback.h>
 #include <caml/custom.h>
@@ -189,7 +190,7 @@ on_url_cb(http_parser *parser, const char *at, size_t length)
   memcpy(String_val(data), at, length);
   len = Val_int(length);
 
-  r = callback3(settings->on_url, caml_parser, data, len);
+  r = caml_callback3(settings->on_url, caml_parser, data, len);
 
   return Int_val(r);
 }
@@ -206,7 +207,7 @@ on_header_field_cb(http_parser *parser, const char *at, size_t length)
   memcpy(String_val(data), at, length);
   len = Val_int(length);
 
-  r = callback3(settings->on_header_field, caml_parser, data, len);
+  r = caml_callback3(settings->on_header_field, caml_parser, data, len);
 
   return Int_val(r);
 }
@@ -223,7 +224,7 @@ on_header_value_cb(http_parser *parser, const char *at, size_t length)
   memcpy(String_val(data), at, length);
   len = Val_int(length);
 
-  r = callback3(settings->on_header_value, caml_parser, data, len);
+  r = caml_callback3(settings->on_header_value, caml_parser, data, len);
 
   return Int_val(r);
 }
@@ -240,7 +241,7 @@ on_body_cb(http_parser *parser, const char *at, size_t length)
   memcpy(String_val(data), at, length);
   len = Val_int(length);
 
-  r = callback3(settings->on_body, caml_parser, data, len);
+  r = caml_callback3(settings->on_body, caml_parser, data, len);
 
   return Int_val(r);
 }
@@ -253,7 +254,7 @@ static int on_message_begin_cb(http_parser* parser)
     (caml_http_parser_settings_t *)parser->data;
   caml_parser = caml_copy_http_parser(parser, NULL, settings);
 
-  r = callback(settings->on_message_begin, caml_parser);
+  r = caml_callback(settings->on_message_begin, caml_parser);
 
   return Int_val(r);
 }
@@ -266,7 +267,7 @@ static int on_status_cb(http_parser* parser)
     (caml_http_parser_settings_t *)parser->data;
   caml_parser = caml_copy_http_parser(parser, NULL, settings);
 
-  r = callback(settings->on_status, caml_parser);
+  r = caml_callback(settings->on_status, caml_parser);
 
   return Int_val(r);
 }
@@ -279,7 +280,7 @@ static int on_headers_complete_cb(http_parser* parser)
     (caml_http_parser_settings_t *)parser->data;
   caml_parser = caml_copy_http_parser(parser, NULL, settings);
 
-  r = callback(settings->on_headers_complete, caml_parser);
+  r = caml_callback(settings->on_headers_complete, caml_parser);
 
   return Int_val(r);
 }
@@ -292,7 +293,7 @@ static int on_message_complete_cb(http_parser* parser)
     (caml_http_parser_settings_t *)parser->data;
   caml_parser = caml_copy_http_parser(parser, NULL, settings);
 
-  r = callback(settings->on_message_complete, caml_parser);
+  r = caml_callback(settings->on_message_complete, caml_parser);
 
   return Int_val(r);
 }
