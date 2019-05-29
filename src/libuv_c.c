@@ -63,7 +63,6 @@ static void shutdown_cb(uv_shutdown_t* req, int status) {
 static void write_cb(uv_write_t *req, int status) {
   CHECK(status, "write_cb");
   /* Since the req is the first field inside the wrapper write_req, we can just cast to it */
-  /* fprintf(stderr, "Actually wrote things\n"); */
   write_req_t *write_req = (write_req_t*) req;
   free(write_req->buf.base);
   free(write_req);
@@ -202,7 +201,6 @@ CAMLprim void request_on(value req, value cb){
   uv_tcp_t *client = (uv_tcp_t*)Field(req, 0);
   client->data = (void *) cb;
   caml_register_global_root((value *) &(client->data));
-  LOGPointer(client->data);
   CAMLreturn0;
 }
 

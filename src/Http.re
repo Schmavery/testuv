@@ -54,7 +54,8 @@ let createParser = (req_cb, res) => {
       0;
     },
   };
-  HttpParser.init(settings, HttpParser.HTTP_REQUEST);
+  let p = HttpParser.init(HttpParser.HTTP_REQUEST);
+  (p, settings)
 };
 
 let getStatusCodeName = n =>
