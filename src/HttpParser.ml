@@ -68,7 +68,7 @@ type http_cb = http_parser -> int
 type http_parser_settings = {
   on_message_begin:    http_cb;
   on_url:              http_data_cb;
-  on_status:           http_cb;
+  on_status:           http_data_cb;
   on_header_field:     http_data_cb;
   on_header_value:     http_data_cb;
   on_headers_complete: http_cb;

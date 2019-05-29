@@ -31,7 +31,7 @@ let createParser = (req_cb, res) => {
   let settings: HttpParser.http_parser_settings = {
     on_message_begin: _ => 0,
     on_url: secondArg(u => url := u),
-    on_status: _ => 0,
+    on_status: (_, _, _) => 0,
     on_header_field: secondArg(f => fields := [f, ...fields^]),
     on_header_value: secondArg(v => values := [v, ...values^]),
     on_headers_complete: _ => {

@@ -259,15 +259,18 @@ static int on_message_begin_cb(http_parser* parser)
   return Int_val(r);
 }
 
-static int on_status_cb(http_parser* parser)
+static int on_status_cb(http_parser *parser, const char *at, size_t length)
 {
-  CAMLlocal2(caml_parser, r);
+  CAMLlocal4(caml_parser, r, data, len);
 
   caml_http_parser_settings_t *settings =
     (caml_http_parser_settings_t *)parser->data;
   caml_parser = caml_copy_http_parser(parser, NULL, settings);
+  data = caml_alloc_string(length);
+  memcpy(String_val(data), at, length);
+  len = Val_int(length);
 
-  r = caml_callback(settings->on_status, caml_parser);
+  r = caml_callback3(settings->on_status, caml_parser, data, len);
 
   return Int_val(r);
 }
@@ -300,7 +303,7 @@ static int on_message_complete_cb(http_parser* parser)
 
 static int
 caml_parse_http_parser_settings(value settings,
-                                caml_http_parser_settings_t *native_settings)
+                                caml_http_parser_settings_t *caml_settings)
 {
 
   // TODO: error code should be returned if settings doesn't meet with
@@ -311,7 +314,7 @@ caml_parse_http_parser_settings(value settings,
   // type http_parser_settings = {
   //   on_message_begin:    http_cb;
   //   on_url:              http_data_cb;
-  //   on_status:  http_cb;
+  //   on_status:           http_data_cb;
   //   on_header_field:     http_data_cb;
   //   on_header_value:     http_data_cb;
   //   on_headers_complete: http_cb;
@@ -319,14 +322,23 @@ caml_parse_http_parser_settings(value settings,
   //   on_message_complete: http_cb
   // }
 
-  native_settings->on_message_begin    = Field(settings, 0);
-  native_settings->on_url              = Field(settings, 1);
-  native_settings->on_status           = Field(settings, 2);
-  native_settings->on_header_field     = Field(settings, 3);
-  native_settings->on_header_value     = Field(settings, 4);
-  native_settings->on_headers_complete = Field(settings, 5);
-  native_settings->on_body             = Field(settings, 6);
-  native_settings->on_message_complete = Field(settings, 7);
+  caml_settings->on_message_begin    = Field(settings, 0);
+  caml_settings->on_url              = Field(settings, 1);
+  caml_settings->on_status           = Field(settings, 2);
+  caml_settings->on_header_field     = Field(settings, 3);
+  caml_settings->on_header_value     = Field(settings, 4);
+  caml_settings->on_headers_complete = Field(settings, 5);
+  caml_settings->on_body             = Field(settings, 6);
+  caml_settings->on_message_complete = Field(settings, 7);
+
+  caml_register_global_root((value *) &(caml_settings->on_message_begin));
+  caml_register_global_root((value *) &(caml_settings->on_url));
+  caml_register_global_root((value *) &(caml_settings->on_status));
+  caml_register_global_root((value *) &(caml_settings->on_header_field));
+  caml_register_global_root((value *) &(caml_settings->on_header_value));
+  caml_register_global_root((value *) &(caml_settings->on_headers_complete));
+  caml_register_global_root((value *) &(caml_settings->on_body));
+  caml_register_global_root((value *) &(caml_settings->on_message_complete));
 
   return 0;
 }
@@ -352,7 +364,7 @@ caml_http_parser_version(value unit)
 CAMLprim value
 caml_http_parser_init(value settings, value type)
 {
-  CAMLparam1(type);
+  CAMLparam2(settings, type);
   CAMLlocal1(caml_parser);
 
   http_parser *native_parser =
