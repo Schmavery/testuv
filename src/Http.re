@@ -171,12 +171,13 @@ let createServer = (cb: (reqT, resT) => unit) => {
         onData: _ => (),
         onEnd: () => (),
       };
-      let parser = createParser(cb, res);
+      let (parser, settings) = createParser(cb, res);
 
       UvBind.requestOn(
         client,
         data => {
-          let _ = HttpParser.execute(parser, data);
+          let _ = HttpParser.execute(parser, settings, data);
+
           ();
         },
       );

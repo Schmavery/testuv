@@ -91,12 +91,12 @@ external version:
   -> int * int * int = "caml_http_parser_version"
 
 external init:
-     http_parser_settings
-  -> http_parser_type
+     http_parser_type
   -> http_parser = "caml_http_parser_init"
 
 external execute:
      http_parser
+  -> http_parser_settings
   -> string
   -> int = "caml_http_parser_execute"
 

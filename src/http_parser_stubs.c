@@ -331,15 +331,6 @@ caml_parse_http_parser_settings(value settings,
   caml_settings->on_body             = Field(settings, 6);
   caml_settings->on_message_complete = Field(settings, 7);
 
-  caml_register_global_root((value *) &(caml_settings->on_message_begin));
-  caml_register_global_root((value *) &(caml_settings->on_url));
-  caml_register_global_root((value *) &(caml_settings->on_status));
-  caml_register_global_root((value *) &(caml_settings->on_header_field));
-  caml_register_global_root((value *) &(caml_settings->on_header_value));
-  caml_register_global_root((value *) &(caml_settings->on_headers_complete));
-  caml_register_global_root((value *) &(caml_settings->on_body));
-  caml_register_global_root((value *) &(caml_settings->on_message_complete));
-
   return 0;
 }
 
@@ -362,57 +353,58 @@ caml_http_parser_version(value unit)
 }
 
 CAMLprim value
-caml_http_parser_init(value settings, value type)
+caml_http_parser_init(value type)
 {
-  CAMLparam2(settings, type);
+  CAMLparam1(type);
   CAMLlocal1(caml_parser);
 
   http_parser *native_parser =
     (http_parser *)malloc(sizeof(http_parser));
 
-  http_parser_settings *native_settings =
-    (http_parser_settings *)malloc(sizeof(http_parser_settings));
-  native_settings->on_message_begin = on_message_begin_cb;
-  native_settings->on_url = on_url_cb;
-  native_settings->on_status = on_status_cb;
-  native_settings->on_header_field = on_header_field_cb;
-  native_settings->on_header_value = on_header_value_cb;
-  native_settings->on_headers_complete = on_headers_complete_cb;
-  native_settings->on_body = on_body_cb;
-  native_settings->on_message_complete = on_message_complete_cb;
-
-  caml_http_parser_settings_t *caml_settings =
-    (caml_http_parser_settings_t *)malloc(sizeof(caml_http_parser_settings_t));
-  int rc = caml_parse_http_parser_settings(settings,
-                                           caml_settings);
-  if (rc == -1) {
-    // TODO: error handling here.
-  }
   enum http_parser_type parser_type = caml_http_parser_type_ml2c(type);
   http_parser_init(native_parser, parser_type);
-  caml_parser = caml_copy_http_parser(native_parser,
-                                      native_settings,
-                                      caml_settings);
+  caml_parser = caml_copy_http_parser(native_parser, NULL, NULL);
 
   CAMLreturn(caml_parser);
 }
 
 CAMLprim value
-caml_http_parser_execute(value parser, value data)
+caml_http_parser_execute(value parser, value settings, value data)
 {
-  CAMLparam2(parser, data);
-  CAMLlocal1(nparsed);
+  CAMLparam3(parser, settings, data);
+
+  http_parser_settings native_settings;
+  native_settings.on_message_begin = on_message_begin_cb;
+  native_settings.on_url = on_url_cb;
+  native_settings.on_status = on_status_cb;
+  native_settings.on_header_field = on_header_field_cb;
+  native_settings.on_header_value = on_header_value_cb;
+  native_settings.on_headers_complete = on_headers_complete_cb;
+  native_settings.on_body = on_body_cb;
+  native_settings.on_message_complete = on_message_complete_cb;
+
+  caml_http_parser_settings_t caml_settings;
+  caml_settings.on_message_begin    = Field(settings, 0);
+  caml_settings.on_url              = Field(settings, 1);
+  caml_settings.on_status           = Field(settings, 2);
+  caml_settings.on_header_field     = Field(settings, 3);
+  caml_settings.on_header_value     = Field(settings, 4);
+  caml_settings.on_headers_complete = Field(settings, 5);
+  caml_settings.on_body             = Field(settings, 6);
+  caml_settings.on_message_complete = Field(settings, 7);
 
   caml_http_parser_t *native_parser =
     caml_http_parser_struct_val(parser);
   const char *local_data = String_val(data);
-  int parsed = http_parser_execute(native_parser->parser,
-                                   native_parser->native_settings,
-                                   local_data,
-                                   strlen(local_data));
-  nparsed = Val_int(parsed);
 
-  CAMLreturn(nparsed);
+  native_parser->parser->data = &caml_settings;
+
+  int parsed = http_parser_execute(native_parser->parser,
+                                   &native_settings,
+                                   local_data,
+                                   caml_string_length(data));
+
+  CAMLreturn(Val_int(parsed));
 }
 
 CAMLprim value
