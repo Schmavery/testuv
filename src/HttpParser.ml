@@ -94,6 +94,15 @@ external init:
      http_parser_type
   -> http_parser = "caml_http_parser_init"
 
+external free:
+     http_parser
+  -> unit = "caml_http_parser_free"
+
+let init t =
+  let parser = init t in
+  Gc.finalise (fun p -> free p) parser;
+  parser
+
 external execute:
      http_parser
   -> http_parser_settings

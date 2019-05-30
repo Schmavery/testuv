@@ -275,6 +275,15 @@ caml_http_parser_init(value type)
   CAMLreturn(caml_parser);
 }
 
+CAMLprim void
+caml_http_parser_free(value parser)
+{
+  CAMLparam1(parser);
+  http_parser *native_parser = Http_parser_val(parser);
+  free(native_parser);
+  CAMLreturn0;
+}
+
 CAMLprim value
 caml_http_parser_execute(value parser, value settings, value data)
 {
