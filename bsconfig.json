@@ -1,7 +1,7 @@
 {
   "name": "Reasongl",
   "sources": [{ "dir": "src" }],
-  "static-libraries": ["libuv.a", "lib/libuv_c.o", "lib/http_parser_stubs.o", "lib/libhttp_parser.o"],
+  "static-libraries": ["libuv.a"],
   "warnings": {"number": "-44"},
   "build-script": "build_script.re",
   "entries": [ {
@@ -15,7 +15,7 @@
     "main-module": "ExampleStatic"
   }, {
     "backend": "bytecode",
-    "main-module": "Example"
+    "main-module": "ExampleServer"
   }],
   "refmt": 3
 }
